@@ -3,6 +3,10 @@
 # eventually have a student view and teacher view - teacher can see student class, debug, etc
 # ALSO INCLUDE SAFETY FEATURES IN HERE
 
+# make the export csv more functional? - find a way to export the whole 'log' from db
+
+# most database setup function could be moved to a separate file for simplicity
+
 
 import cv2
 import tkinter as tk
@@ -14,6 +18,7 @@ import sqlite3
 import time
 import csv
 from datetime import datetime
+import fill_role
 
 DB_NAME = "attendance.db"
 
@@ -419,8 +424,8 @@ class BarcodeScannerApp:
         self.window.destroy()
 
 if __name__ == "__main__":
-    init_db()
-    seed_users()
+    fill_role.create_db()
+    fill_role.create_users() # check if this works!
 
     root = tk.Tk()
     app = BarcodeScannerApp(root)
