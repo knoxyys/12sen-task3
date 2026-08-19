@@ -1,0 +1,1 @@
+## pseudocode for module that adds returned barcode reading into database to then modify student presence or warn for new student
