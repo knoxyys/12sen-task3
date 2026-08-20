@@ -8,68 +8,21 @@
 # most database setup function could be moved to a separate file for simplicity
 
 
-import cv2
-import tkinter as tk
-from tkinter import ttk, simpledialog, filedialog, messagebox
-from PIL import Image, ImageTk
-from pyzbar.pyzbar import decode, ZBarSymbol
-import os
-import sqlite3
-import time
-import csv
-from datetime import datetime
-import fill_role
-
-DB_NAME = "attendance.db"
+import cv2 # webcam capture
+import tkinter as tk # gui
+from tkinter import ttk, simpledialog, filedialog, messagebox # further gui functionality
+from PIL import Image, ImageTk # image processing
+from pyzbar.pyzbar import decode, ZBarSymbol # barcode decoding
+import os # file operations
+import sqlite3 # database management
+import time # timestamps and cooldowns
+import csv # csv exporting
+from datetime import datetime # current date
 
 # -------------------------------------------------------------------
 # DATABASE FUNCTIONS
 # -------------------------------------------------------------------
-def init_db():
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            user_id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            period INTEGER NOT NULL DEFAULT 1,
-            class_name TEXT NOT NULL DEFAULT ''
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS presence (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT NOT NULL,
-            action TEXT NOT NULL,
-            reason TEXT DEFAULT '',
-            event_time TEXT NOT NULL,
-            FOREIGN KEY(user_id) REFERENCES users(user_id)
-        )
-    """)
-
-    conn.commit()
-    conn.close()
-
-def seed_users():
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-
-    # Preloaded users with period and class_name included
-    sample_users = [
-        ("100125", "Alex Smith", 1, "12STU2"),
-        ("100126", "John Doe", 1, "12PHY"),
-        ("100127", "Jane Miller", 1, "12ENA"),
-        ("100128", "Taylor Reed", 1, "12STU2")
-    ]
-
-    cursor.executemany("""
-        INSERT OR IGNORE INTO users (user_id, name, period, class_name) VALUES (?, ?, ?, ?)
-    """, sample_users)
-
-    conn.commit()
-    conn.close()
+DB_NAME = "attendance.db"
 
 def process_scan(user_id):
     conn = sqlite3.connect(DB_NAME)
@@ -154,15 +107,16 @@ def get_latest_user_states():
     return rows
 
 def get_current_period():
-    """Fetches the period setting from the first user record (defaults to 1)."""
+    """fetches the period number from the first user record (assumes all users are in the same period)"""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("SELECT period FROM users LIMIT 1")
     row = cursor.fetchone()
     conn.close()
-    return row[0] if row else 1
+    return row[0]
 
 def clear_presence_db():
+    """for debugging purposes, resets the presence table to simulate period start"""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("DELETE FROM presence;")
@@ -178,24 +132,22 @@ class BarcodeScannerApp:
         self.window = window
         self.window.title("Barcode Attendance Log")
 
-        # Fullscreen / Maximized Setup
-        try:
+        try: # fullscreen to show all details
             self.window.tk.call('wm', 'attributes', '.', '-zoomed', True)
         except tk.TclError:
             self.window.state('zoomed')
 
-        self.cap = cv2.VideoCapture(0)
+        self.cap = cv2.VideoCapture(0) # start webcam capture for barcode scanning
         self.last_scanned = {}
         self.cooldown_seconds = 4
 
-        # Top Header Frame: Date & Period Label
-        header_frame = tk.Frame(window, bg="#e2e8f0", pady=8)
+        header_frame = tk.Frame(window, bg="#e2e8f0", pady=8) # header for date and period
         header_frame.pack(side=tk.TOP, fill=tk.X)
 
-        current_date_str = datetime.now().strftime("%A, %B %d, %Y")
+        current_date_str = datetime.now().strftime("%A, %B %d, %Y") # format date nicely and get period from db
         current_period = get_current_period()
 
-        self.header_label = tk.Label(
+        self.header_label = tk.Label( # then send to header
             header_frame,
             text=f"Date: {current_date_str}   |   Current Period: {current_period}",
             font=("Arial", 12, "bold"),
@@ -204,7 +156,7 @@ class BarcodeScannerApp:
         )
         self.header_label.pack()
 
-        # Left Column: Video Feed & Action Buttons below webcam
+        # LEFT COLUMN of video and buttons
         left_frame = tk.Frame(window)
         left_frame.pack(side=tk.LEFT, fill=tk.Y, padx=15, pady=15)
 
@@ -238,7 +190,7 @@ class BarcodeScannerApp:
         )
         reset_btn.pack(side=tk.LEFT)
 
-        # Right Column: Attendance Table
+        # RIGHT COLUMN of attendance log table
         right_frame = tk.Frame(window)
         right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=15, pady=15)
 
@@ -250,7 +202,7 @@ class BarcodeScannerApp:
         scrollbar = ttk.Scrollbar(table_frame)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # Frontend Table excludes 'class' and 'id' columns
+        # frontend table
         columns = ("id", "name", "period", "status", "sign_in", "sign_out", "reason")
         self.tree = ttk.Treeview(
             table_frame, 
@@ -287,7 +239,6 @@ class BarcodeScannerApp:
             self.tree.delete(item)
 
         records = get_latest_user_states()
-        # Unpacks class_name but does not insert it into self.tree values
         for user_id, name, period, class_name, last_action, sign_in_time, sign_out_time, reason in records:
             if last_action is None:
                 status_text = "Absent"
@@ -333,13 +284,11 @@ class BarcodeScannerApp:
             with open(file_path, mode="w", newline="", encoding="utf-8") as file:
                 writer = csv.writer(file)
 
-                # Header Metadata Block
                 writer.writerow(["ATTENDANCE REPORT"])
                 writer.writerow(["Date:", export_date_str])
                 writer.writerow(["Period:", current_period])
-                writer.writerow([])  # Blank spacer row
+                writer.writerow([])
 
-                # Table Column Headers (Includes Class)
                 writer.writerow(["User ID", "Name", "Class", "Period", "Status", "Sign In Time", "Sign Out Time", "Reason"])
 
                 for user_id, name, period, class_name, last_action, sign_in_time, sign_out_time, reason in records:
@@ -371,10 +320,6 @@ class BarcodeScannerApp:
             "Are you sure you want to clear all presence records?\nThis cannot be undone.",
             icon="warning"
         )
-        if confirm:
-            clear_presence_db()
-            self.refresh_table()
-            messagebox.showinfo("Reset Complete", "All presence records have been cleared.")
 
     def update_frame(self):
         ret, frame = self.cap.read()
@@ -406,7 +351,7 @@ class BarcodeScannerApp:
                             update_reason(log_id, reason)
                             self.refresh_table()
 
-                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2) # framing stuff idk bro
                 cv2.putText(frame, text, (x, y - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
@@ -424,9 +369,6 @@ class BarcodeScannerApp:
         self.window.destroy()
 
 if __name__ == "__main__":
-    fill_role.create_db()
-    fill_role.create_users() # check if this works!
-
     root = tk.Tk()
     app = BarcodeScannerApp(root)
     root.mainloop()
