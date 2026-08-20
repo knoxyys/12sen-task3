@@ -1,1 +1,32 @@
-## pseudocode for module that adds returned barcode reading into database to then modify student presence or warn for new student
+# pseudocode for the 'process attendance' module and its levels as per my structure chart
+
+MODULE Process Attendance(studentID, attendanceStatus) # layer 1
+
+    IF attendanceStatus = "SIGNED IN" THEN
+        Handle_sign_out(studentID)
+    ELSE
+        Handle_sign_in(studentID)
+    ENDIF
+
+END MODULE
+
+
+MODULE Handle_sign_in(studentID) # layer 2
+
+    signInTime = Get_current_time
+    lateness = Calculate_lateness(signInTime)
+
+    Record_sign_in(studentID, signInTime, lateness)
+
+END MODULE
+
+
+MODULE Handle_sign_out(studentID) # layer 2
+
+    reason = Input_reason()
+
+    IF reason is not NULL THEN
+        Record_sign_out(studentID, reason)
+    ENDIF
+
+END MODULE
