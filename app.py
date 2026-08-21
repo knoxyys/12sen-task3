@@ -60,6 +60,7 @@ def process_scan(user_id):
 # for sign out
 def update_reason(log_id, reason):
     with conn:
+# parameterised SQL to avoid SQL injection attacks and other issues (dedicated security measure per rubric)
         conn.execute("""
             UPDATE presence
             SET reason = ?
@@ -365,6 +366,16 @@ class BarcodeScannerApp:
 
         self.window.after(10, self.update_frame)
 
+# dedicated security countermeasure to prevent excessively long or invalid input
+    def validate_reason(self, reason):
+        if len(reason) > 50:
+            return False
+# fancy check for non-printable characters (ASCII < 32)
+        if any(ord(char) < 32 for char in reason):
+            return False
+# else continue
+        return True
+
     def prompt_for_reason(self):
 # a sign out will not be accepted until a reason is provided
         while True:
@@ -374,11 +385,12 @@ class BarcodeScannerApp:
                 parent=self.window
             )
             if reason is not None and reason.strip():
-                return reason.strip()
+                if self.validate_reason(reason):
+                    return reason.strip()
 # empty input rejected and the user is prompted again
             messagebox.showwarning(
                 "Reason Required",
-                "A sign-out reason is required and cannot be empty."
+                "A valid sign-out reason is required."
             )
 
 # release the webcam and close the database connection when the application is closed

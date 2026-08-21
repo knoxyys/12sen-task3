@@ -1,10 +1,10 @@
 # Stirling 12SEN Task 3
 
 ### commands to run:
-pip install opencv-python
-pip install pillow
-pip install pyzbar
-brew install zbar (annoying macos dependancy fix)
+pip install opencv-python  
+pip install pillow  
+pip install pyzbar  
+brew install zbar (annoying macos dependancy fix)  
 
 hopefully things dont break! it works for me now but let me know if any issues arise
 
