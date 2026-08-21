@@ -1,13 +1,3 @@
-# explain how it works
-# rolls for the period are preloaded into the database
-# eventually have a student view and teacher view - teacher can see student class, debug, etc
-# ALSO INCLUDE SAFETY FEATURES IN HERE
-
-# make the export csv more functional? - find a way to export the whole 'log' from db
-
-# most database setup function could be moved to a separate file for simplicity
-
-
 import cv2 # webcam capture
 import tkinter as tk # gui
 from tkinter import ttk, simpledialog, filedialog, messagebox # further gui functionality
@@ -17,17 +7,32 @@ import os # file operations
 import sqlite3 # database management
 import time # timestamps and cooldowns
 import csv # csv exporting
-from datetime import datetime # current date
+from datetime import datetime # current date / time
 
 # -------------------------------------------------------------------
 # DATABASE FUNCTIONS
 # -------------------------------------------------------------------
 DB_NAME = "attendance.db"
 
+# single database connection to avoid opening and closing on every scan
+conn = sqlite3.connect(DB_NAME)
+
+
+# independent function for determining status text based on last action
+def get_status_text(last_action):
+    if last_action is None:
+        return "Absent"
+    elif last_action == "sign_in":
+        return "Here"
+    else:
+        return "Signed Out"
+
+
+# main logic function for signing in or out based on last action
 def process_scan(user_id):
-    conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
+# finds the last action for the user
     cursor.execute("""
         SELECT action FROM presence 
         WHERE user_id = ? 
@@ -35,39 +40,36 @@ def process_scan(user_id):
     """, (user_id,))
     row = cursor.fetchone()
 
+# if the last action was sign in, the next action is sign out
     if row is None or row[0] == "sign_out":
         action = "sign_in"
     else:
         action = "sign_out"
 
-    cursor.execute("""
-        INSERT INTO presence (user_id, action, reason, event_time)
-        VALUES (?, ?, '', time('now', 'localtime'))
-    """, (user_id, action))
+    with conn:
+        cursor.execute("""
+            INSERT INTO presence (user_id, action, reason, event_time)
+            VALUES (?, ?, '', time('now', 'localtime'))
+        """, (user_id, action))
+# stores all actions as separate records so complete history retained in db
 
     log_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
-
     return action, log_id
 
+
+# for sign out
 def update_reason(log_id, reason):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
+    with conn:
+        conn.execute("""
+            UPDATE presence
+            SET reason = ?
+            WHERE id = ?
+        """, (reason, log_id))
 
-    cursor.execute("""
-        UPDATE presence
-        SET reason = ?
-        WHERE id = ?
-    """, (reason, log_id))
 
-    conn.commit()
-    conn.close()
-
+# retrieves current status of all users as well as retrieving their most recent sign in and sign out times and reasons
 def get_latest_user_states():
-    conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-
     cursor.execute("""
         SELECT 
             u.user_id,
@@ -101,45 +103,46 @@ def get_latest_user_states():
             ) p2 ON p1.id = p2.max_id
         ) latest ON u.user_id = latest.user_id
     """)
+    return cursor.fetchall()
 
-    rows = cursor.fetchall()
-    conn.close()
-    return rows
 
-def get_current_period():
-    """fetches the period number from the first user record (assumes all users are in the same period)"""
-    conn = sqlite3.connect(DB_NAME)
+# assumes all users are in the same period, takes the period of the first user in table as the current period
+def get_current_period(): 
     cursor = conn.cursor()
     cursor.execute("SELECT period FROM users LIMIT 1")
     row = cursor.fetchone()
-    conn.close()
     return row[0]
 
+
+# debug but also kinda useful for showing functionality (double check if working?)
 def clear_presence_db():
-    """for debugging purposes, resets the presence table to simulate period start"""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM presence;")
-    conn.commit()
-    conn.close()
+    with conn:
+        conn.execute("DELETE FROM presence;")
 
 
 # -------------------------------------------------------------------
 # GUI APPLICATION
 # -------------------------------------------------------------------
 class BarcodeScannerApp:
+# initialise the main window and gui
     def __init__(self, window):
         self.window = window
         self.window.title("Barcode Attendance Log")
 
-        try: # fullscreen to show all details
+# try fullscreen to show all details
+        try:
             self.window.tk.call('wm', 'attributes', '.', '-zoomed', True)
         except tk.TclError:
             self.window.state('zoomed')
 
-        self.cap = cv2.VideoCapture(0) # start webcam capture for barcode scanning
+# start webcam capture for barcode scanning
+        self.cap = cv2.VideoCapture(0)
+# cooldown storage and logic to prevent multiple scans of the same barcode in a short time (4 seconds)
         self.last_scanned = {}
         self.cooldown_seconds = 4
+
+# maps each user id to a table item so a sign in or out means altering a single row instead of rebuilding the whole table every scan
+        self.tree_items = {}
 
         header_frame = tk.Frame(window, bg="#e2e8f0", pady=8) # header for date and period
         header_frame.pack(side=tk.TOP, fill=tk.X)
@@ -147,7 +150,8 @@ class BarcodeScannerApp:
         current_date_str = datetime.now().strftime("%A, %B %d, %Y") # format date nicely and get period from db
         current_period = get_current_period()
 
-        self.header_label = tk.Label( # then send to header
+# send information to header
+        self.header_label = tk.Label(
             header_frame,
             text=f"Date: {current_date_str}   |   Current Period: {current_period}",
             font=("Arial", 12, "bold"),
@@ -156,7 +160,7 @@ class BarcodeScannerApp:
         )
         self.header_label.pack()
 
-        # LEFT COLUMN of video and buttons
+# LEFT COLUMN of video and buttons
         left_frame = tk.Frame(window)
         left_frame.pack(side=tk.LEFT, fill=tk.Y, padx=15, pady=15)
 
@@ -190,7 +194,7 @@ class BarcodeScannerApp:
         )
         reset_btn.pack(side=tk.LEFT)
 
-        # RIGHT COLUMN of attendance log table
+# RIGHT COLUMN of attendance log table
         right_frame = tk.Frame(window)
         right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=15, pady=15)
 
@@ -202,7 +206,7 @@ class BarcodeScannerApp:
         scrollbar = ttk.Scrollbar(table_frame)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # frontend table
+# table logic and config
         columns = ("id", "name", "period", "status", "sign_in", "sign_out", "reason")
         self.tree = ttk.Treeview(
             table_frame, 
@@ -235,32 +239,26 @@ class BarcodeScannerApp:
         self.window.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def refresh_table(self):
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-
+# refreshes the table with the latest attendance states from db and updates the corresponding row in the table
         records = get_latest_user_states()
         for user_id, name, period, class_name, last_action, sign_in_time, sign_out_time, reason in records:
-            if last_action is None:
-                status_text = "Absent"
-            elif last_action == "sign_in":
-                status_text = "Here"
-            else:
-                status_text = "Signed Out"
-
-            self.tree.insert(
-                "", 
-                tk.END, 
-                values=(
-                    user_id, 
-                    name, 
-                    period,
-                    status_text, 
-                    sign_in_time or "Not Scanned", 
-                    sign_out_time or "", 
-                    reason or ""
-                )
+            values = (
+                user_id,
+                name,
+                period,
+                get_status_text(last_action),
+                sign_in_time or "Not Scanned",
+                sign_out_time or "",
+                reason or ""
             )
 
+            if user_id in self.tree_items:
+                self.tree.item(self.tree_items[user_id], values=values)
+            else:
+                item_id = self.tree.insert("", tk.END, values=values)
+                self.tree_items[user_id] = item_id
+
+# poor csv exporting functionality (doesnt include full history, just the latest state of each user)
     def export_to_csv(self):
         now = datetime.now()
         current_period = get_current_period()
@@ -281,6 +279,7 @@ class BarcodeScannerApp:
             records = get_latest_user_states()
             export_date_str = now.strftime("%Y-%m-%d")
 
+# write to csv file
             with open(file_path, mode="w", newline="", encoding="utf-8") as file:
                 writer = csv.writer(file)
 
@@ -292,25 +291,19 @@ class BarcodeScannerApp:
                 writer.writerow(["User ID", "Name", "Class", "Period", "Status", "Sign In Time", "Sign Out Time", "Reason"])
 
                 for user_id, name, period, class_name, last_action, sign_in_time, sign_out_time, reason in records:
-                    if last_action is None:
-                        status_text = "Absent"
-                    elif last_action == "sign_in":
-                        status_text = "Here"
-                    else:
-                        status_text = "Signed Out"
-
                     writer.writerow([
                         user_id,
                         name,
                         class_name,
                         period,
-                        status_text,
+                        get_status_text(last_action),
                         sign_in_time or "Not Scanned",
                         sign_out_time or "",
                         reason or ""
                     ])
 
             messagebox.showinfo("Export Successful", f"Saved successfully to:\n{file_path}")
+# nicer error handling as per rubric
         except Exception as e:
             messagebox.showerror("Export Error", f"Failed to export file:\n{str(e)}")
 
@@ -321,10 +314,20 @@ class BarcodeScannerApp:
             icon="warning"
         )
 
+        if confirm:
+            clear_presence_db()
+            self.tree_items.clear()
+            for item in self.tree.get_children():
+                self.tree.delete(item)
+            self.refresh_table()
+
+# mainish loop; updates the video frame and checks for barcodes as well as handling cooldown logic
     def update_frame(self):
+# continuously read frames from the webcam and process them for barcode detection
         ret, frame = self.cap.read()
         if ret:
             frame = cv2.resize(frame, (640, 480))
+# (annoying) decode only CODE39 type barcodes (student ID barcodes are CODE39)
             results = decode(frame, symbols=[ZBarSymbol.CODE39])
             current_time = time.time()
 
@@ -332,26 +335,24 @@ class BarcodeScannerApp:
                 text = result.data.decode("utf-8")
                 (x, y, w, h) = result.rect
 
+# check when the last scan of this barcode was and if it is within the cooldown period, ignore it
                 last_time = self.last_scanned.get(text, 0)
                 
                 if (current_time - last_time) > self.cooldown_seconds:
                     self.last_scanned[text] = current_time
                     
+# process the scan as a sign in or sign out and update the table accordingly, also play a sound to indicate a successful scan
                     action, log_id = process_scan(user_id=text)
                     self.refresh_table()
                     os.system("afplay /System/Library/Sounds/Ping.aiff &")
 
                     if action == "sign_out":
-                        reason = simpledialog.askstring(
-                            "Sign Out Reason", 
-                            f"Enter reason for sign-out (optional):",
-                            parent=self.window
-                        )
-                        if reason:
-                            update_reason(log_id, reason)
-                            self.refresh_table()
+                        reason = self.prompt_for_reason()
+                        update_reason(log_id, reason)
+                        self.refresh_table()
 
-                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2) # framing stuff idk bro
+# ai magic (from debugging but looked cool so kept it) that draws a rectangle around the detected barcode and displays the decoded text above it on camera
+                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
                 cv2.putText(frame, text, (x, y - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
@@ -364,8 +365,26 @@ class BarcodeScannerApp:
 
         self.window.after(10, self.update_frame)
 
+    def prompt_for_reason(self):
+# a sign out will not be accepted until a reason is provided
+        while True:
+            reason = simpledialog.askstring(
+                "Sign Out Reason",
+                "Enter reason for sign-out (required):",
+                parent=self.window
+            )
+            if reason is not None and reason.strip():
+                return reason.strip()
+# empty input rejected and the user is prompted again
+            messagebox.showwarning(
+                "Reason Required",
+                "A sign-out reason is required and cannot be empty."
+            )
+
+# release the webcam and close the database connection when the application is closed
     def on_close(self):
         self.cap.release()
+        conn.close()
         self.window.destroy()
 
 if __name__ == "__main__":

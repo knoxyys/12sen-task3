@@ -39,11 +39,8 @@ def create_users(): # would have a more efficient way for roll input in a proper
 
     # Preloaded users with period and class_name included
     sample_users = [
-        ("100125", "Alex Smith", 1, "12STU2"),
-        ("100126", "John Doe", 1, "12PHY"),
-        ("100127", "Jane Miller", 1, "12ENA"),
-        ("100128", "Taylor Reed", 1, "12STU2"),
-        ("100849", "Lucas Yang", 1, "12STU2"),
+        ("100125", "Stirling Knox", 1, "12STU2"),
+        ("100849", "Troy Harcoan", 1, "12ENA"),
         ("100865", "Charlie Pudsey", 1, "12STU2"),
     ]
 
